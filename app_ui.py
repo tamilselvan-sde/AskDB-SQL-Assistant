@@ -2,15 +2,47 @@ import streamlit as st
 import requests
 import json
 import pandas as pd
+import sqlite3
 import matplotlib.pyplot as plt
 
 # API URL (assuming the Flask app is running locally)
 API_URL = "http://127.0.0.1:5000/ask"
+DB_PATH = "Ecommerce.db"  # Ensure the correct path to the database
+
+# Function to get the database schema
+def fetch_schema():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get all table names
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = cursor.fetchall()
+
+    schema_info = {}
+    for table in tables:
+        table_name = table[0]
+        cursor.execute(f"PRAGMA table_info({table_name});")
+        columns = cursor.fetchall()
+        schema_info[table_name] = [{"Column Name": col[1], "Data Type": col[2]} for col in columns]
+    
+    conn.close()
+    return schema_info
+
+# Fetch schema before UI loads
+schema_data = fetch_schema()
 
 # Title for the web app
 st.title("AskDB AI Powered SQL Query Assistant")
 
+# Display database schema
+st.subheader("📌 Database Schema Overview")
+for table_name, columns in schema_data.items():
+    st.write(f"**Table: {table_name}**")
+    df_schema = pd.DataFrame(columns)
+    st.dataframe(df_schema)
+
 # Textbox for user to input their question
+st.subheader("🔍 Ask a Question")
 question = st.text_input("Ask a question about the database:")
 
 # Function to check if the user wants a chart
