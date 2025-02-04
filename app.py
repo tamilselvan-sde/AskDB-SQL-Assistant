@@ -78,19 +78,20 @@ def ask_chat():
     schema_text = "\n".join([f"Table: {table}, Columns: {', '.join(columns)}" for table, columns in schema_info.items()])
 
     prompt = f"""
-You are an SQL expert. Based on the following database schema, generate an optimized SQL query:
+You are an SQL expert. Based on the following database schema, generate an optimized SQL query and provide a one-line explanation.
 
 {schema_text}
 
-- Generate only the SQL query.
-- Do NOT include any explanations or additional text.
+- First, provide a one-line explanation of what the query does.
+- Then, generate only the SQL query.
+- Do NOT include any additional text.
 - Ensure the query is valid for SQLite.
 
 User's question: "{user_prompt}"
 """
 
     try:
-        # Query the AI model to generate the SQL query
+        # Query the AI model to generate the SQL query and explanation
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
@@ -99,8 +100,11 @@ User's question: "{user_prompt}"
             top_p=1
         )
 
-        # Extract and clean the SQL query
-        generated_sql = response.choices[0].message.content.strip()
+        # Split explanation and SQL query
+        response_text = response.choices[0].message.content.strip().split("\n", 1)
+        explanation = response_text[0].strip() if len(response_text) > 1 else "No explanation provided."
+        generated_sql = response_text[1].strip() if len(response_text) > 1 else response_text[0]
+
         cleaned_sql = clean_sql_query(generated_sql)
 
         if not cleaned_sql.upper().startswith("SELECT"):
@@ -111,6 +115,7 @@ User's question: "{user_prompt}"
 
         return jsonify({
             "question": user_prompt,
+            "explanation": explanation,
             "sql_query": cleaned_sql,
             "execution_time_ms": query_result.get("execution_time_ms", 0),
             "actual_result": query_result.get("result", [])

@@ -10,6 +10,10 @@ import time
 API_URL = "http://127.0.0.1:5000/ask"
 DB_PATH = "Ecommerce.db"  
 
+# Initialize session state for history
+if "history" not in st.session_state:
+    st.session_state.history = []
+
 # Function to fetch all table names
 def fetch_tables():
     conn = sqlite3.connect(DB_PATH)
@@ -40,7 +44,6 @@ if selected_table:
 
     schema_data = fetch_table_schema(selected_table)
     if schema_data:
-        # Convert schema to DataFrame and transpose it
         df_schema = pd.DataFrame(schema_data)
         if not df_schema.empty:
             df_transposed = df_schema.T  # Transpose the table
@@ -56,14 +59,28 @@ if selected_table:
 
 # User input for database queries
 st.subheader("🔍 Ask a Question")
-question = st.text_input("Ask a question about the database:")
+
+# Display dropdown with last 5 prompts
+selected_history_prompt = st.selectbox("History (Last 5 Prompts):", [""] + st.session_state.history[::-1])
+
+# Use selected history prompt as input
+question = st.text_input("Ask a question about the database:", value=selected_history_prompt)
 
 # Function to detect chart requests
 def is_chart_request(question):
-    chart_keywords = ["pie chart", "bar chart", "line chart", "scatter plot"]
-    for keyword in chart_keywords:
-        if keyword in question.lower():
-            return keyword
+    chart_keywords = ["chart", "plot", "graph", "visualize", "draw"]
+    return any(keyword in question.lower() for keyword in chart_keywords)
+
+# Function to determine chart type from question
+def determine_chart_type(question):
+    if "line" in question.lower():
+        return "line"
+    elif "bar" in question.lower():
+        return "bar"
+    elif "scatter" in question.lower():
+        return "scatter"
+    elif "pie" in question.lower():
+        return "pie"
     return None
 
 # Function to generate appropriate chart
@@ -72,37 +89,36 @@ def generate_plot(df, chart_type):
         st.warning("No data available for visualization.")
         return
     
-    # Identify numeric and categorical columns
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
     categorical_cols = df.select_dtypes(exclude=['number']).columns.tolist()
 
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    if chart_type == "pie chart" and categorical_cols and numeric_cols:
+    if chart_type == "pie" and categorical_cols and numeric_cols:
         df.groupby(categorical_cols[0])[numeric_cols[0]].sum().plot(kind="pie", autopct="%1.1f%%", startangle=90, ax=ax)
         ax.set_ylabel("")
         ax.set_title("Pie Chart")
     
-    elif chart_type == "bar chart" and categorical_cols and numeric_cols:
+    elif chart_type == "bar" and categorical_cols and numeric_cols:
         df.groupby(categorical_cols[0])[numeric_cols[0]].mean().plot(kind="bar", ax=ax)
         ax.set_xlabel(categorical_cols[0])
         ax.set_ylabel(numeric_cols[0])
         ax.set_title("Bar Chart")
     
-    elif chart_type == "line chart" and len(numeric_cols) >= 2:
+    elif chart_type == "line" and len(numeric_cols) >= 2:
         df.plot(x=numeric_cols[0], y=numeric_cols[1], kind="line", marker='o', ax=ax)
         ax.set_xlabel(numeric_cols[0])
         ax.set_ylabel(numeric_cols[1])
         ax.set_title("Line Chart")
     
-    elif chart_type == "scatter plot" and len(numeric_cols) >= 2:
+    elif chart_type == "scatter" and len(numeric_cols) >= 2:
         df.plot(kind="scatter", x=numeric_cols[0], y=numeric_cols[1], ax=ax, color="red")
         ax.set_xlabel(numeric_cols[0])
         ax.set_ylabel(numeric_cols[1])
         ax.set_title("Scatter Plot")
     
     else:
-        st.warning(f"No suitable data available for {chart_type}.")
+        st.warning(f"No suitable data available for {chart_type} chart.")
         return
     
     st.pyplot(fig)
@@ -110,6 +126,12 @@ def generate_plot(df, chart_type):
 # Submit query and execute it
 if st.button("Submit Query"):
     if question:
+        # Store the latest prompt in history (keep last 5)
+        if question not in st.session_state.history:
+            st.session_state.history.append(question)
+            if len(st.session_state.history) > 5:
+                st.session_state.history.pop(0)
+
         ui_start_time = time.time()
 
         response = requests.post(API_URL, headers={"Content-Type": "application/json"}, data=json.dumps({"question": question}))
@@ -118,23 +140,26 @@ if st.button("Submit Query"):
         if response.status_code == 200:
             data = response.json()
             st.write("### Question:", data["question"])
-            
+
             if "execution_time_ms" in data:
                 st.write(f"⚡ **Backend Query Execution Time:** {data['execution_time_ms']} ms")
 
             st.write(f"🖥 **Total UI Execution Time:** {round(ui_execution_time, 2)} ms")
+
+            if "explanation" in data:
+                st.write(f"**📝 Explanation:** {data['explanation']}")
 
             if "sql_query" in data:
                 st.code(data["sql_query"], language="sql")  
 
             if "actual_result" in data and isinstance(data["actual_result"], list) and len(data["actual_result"]) > 0:
                 df = pd.DataFrame(data["actual_result"])  
-                
-                chart_type = is_chart_request(question)
-                
-                if chart_type:
-                    st.write(f"### Visualization ({chart_type.capitalize()})")
-                    generate_plot(df, chart_type)
+
+                if is_chart_request(question):
+                    chart_type = determine_chart_type(question)
+                    if chart_type:
+                        st.write(f"### Visualization ({chart_type.capitalize()} Chart)")
+                        generate_plot(df, chart_type)
                 else:
                     st.write("### Query Result:")
                     st.dataframe(df)
