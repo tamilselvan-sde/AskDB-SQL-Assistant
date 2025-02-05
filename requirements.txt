@@ -1,12 +1,7 @@
-flask
-groq
-streamlit
-requests
-json
-sqlite3
-
 streamlit
 pandas
-sqlite3
 matplotlib
 streamlit-option-menu
+groq
+requests
+flask
