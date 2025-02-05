@@ -6,7 +6,18 @@ from streamlit_option_menu import option_menu
 from groq import Groq
 
 # Hardcoded Groq API Key
-GROQ_API_KEY = "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"  # <-- Replace with your actual Groq API key
+GROQ_API_KEY = "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"
+ # <-- Replace with your actual API key
+import streamlit as st
+import pandas as pd
+import sqlite3
+import matplotlib.pyplot as plt
+from streamlit_option_menu import option_menu
+from groq import Groq
+import re
+
+# Hardcoded Groq API Key
+GROQ_API_KEY = "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"
 
 # Database Path
 DB_PATH = "Ecommerce.db"
@@ -38,21 +49,25 @@ def fetch_table_schema(table_name):
     conn.close()
     return schema[['Column Name', 'Data Type']]
 
+# Function to clean AI-generated SQL query
+def clean_sql_query(generated_sql):
+    """Extracts only the SQL query from AI-generated output."""
+    match = re.search(r"(SELECT .*?;)", generated_sql, re.DOTALL | re.IGNORECASE)
+    return match.group(1) if match else "INVALID SQL"
+
 # Function to generate SQL query using AI
 def generate_sql_query(question):
     tables = fetch_tables()
     schema_info = {table: fetch_table_schema(table)['Column Name'].tolist() for table in tables}
 
-    # Format database schema as text
     schema_text = "\n".join([f"Table: {table}, Columns: {', '.join(columns)}" for table, columns in schema_info.items()])
-
     prompt = f"""
     You are an SQL expert. Based on the following database schema, generate an optimized SQL query.
     {schema_text}
     User's question: "{question}"
     Ensure the query is valid for SQLite.
     """
-
+    
     try:
         response = groq_client.chat.completions.create(
             model="llama3-70b-8192",
@@ -61,15 +76,17 @@ def generate_sql_query(question):
             max_tokens=500,
             top_p=1
         )
-
-        return response.choices[0].message.content.strip()
-
+        return clean_sql_query(response.choices[0].message.content.strip())
     except Exception as e:
         st.error(f"Error generating SQL: {e}")
-        return ""
+        return "INVALID SQL"
 
-# Execute SQL query and return DataFrame
+# Execute SQL query
 def execute_query(sql_query):
+    if not sql_query.strip().upper().startswith("SELECT"):
+        st.error("❌ Only SELECT queries are allowed!")
+        return pd.DataFrame()
+    
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -77,13 +94,12 @@ def execute_query(sql_query):
         data = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description] if cursor.description else []
         conn.close()
-        df = pd.DataFrame(data, columns=column_names)
-        return df
+        return pd.DataFrame(data, columns=column_names)
     except Exception as e:
         st.error(f"Error executing query: {e}")
         return pd.DataFrame()
 
-# Generate a plot based on data
+# Generate chart
 def generate_plot(df):
     if df.empty or df.select_dtypes(include=['number']).empty:
         st.warning("⚠️ No numeric data available for visualization.")
@@ -94,7 +110,7 @@ def generate_plot(df):
     df.plot(kind="bar", ax=ax)
     st.pyplot(fig)
 
-# Sidebar navigation menu
+# Sidebar Navigation
 with st.sidebar:
     selected = option_menu(
         "AskDB",
@@ -110,18 +126,17 @@ if selected == "📝 Ask Questions":
     st.markdown('<p class="header">🔍 Ask a Question in Natural Language</p>', unsafe_allow_html=True)
 
     question = st.text_area("Enter your question about the database:")
-
+    
     if st.button("Generate & Run Query 🚀"):
         if question:
-            # Generate SQL query from AI
             sql_query = generate_sql_query(question)
-            if sql_query:
-                st.markdown('<p class="subheader">Generated SQL Query:</p>', unsafe_allow_html=True)
-                st.code(sql_query, language="sql")
+            st.markdown("### AI-Generated SQL Query:")
+            st.code(sql_query, language="sql")
 
-                # Execute and display results
+            if "INVALID SQL" in sql_query:
+                st.error("🚨 AI-generated query is invalid. Please refine your input.")
+            else:
                 df = execute_query(sql_query)
-                st.markdown('<p class="subheader">Query Results:</p>', unsafe_allow_html=True)
                 st.dataframe(df)
                 generate_plot(df)
 
