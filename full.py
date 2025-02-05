@@ -6,7 +6,7 @@ from streamlit_option_menu import option_menu
 from groq import Groq
 
 # Hardcoded Groq API Key
-GROQ_API_KEY = "your_groq_api_key_here"  # <-- Replace with your actual Groq API key
+GROQ_API_KEY = "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"  # <-- Replace with your actual Groq API key
 
 # Database Path
 DB_PATH = "Ecommerce.db"
