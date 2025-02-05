@@ -4,4 +4,9 @@ streamlit
 requests
 json
 sqlite3
-python-dotenv
+
+streamlit
+pandas
+sqlite3
+matplotlib
+streamlit-option-menu
