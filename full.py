@@ -3,46 +3,22 @@ import pandas as pd
 import sqlite3
 import matplotlib.pyplot as plt
 from streamlit_option_menu import option_menu
+from groq import Groq
+
+# Hardcoded Groq API Key
+GROQ_API_KEY = "your_groq_api_key_here"  # <-- Replace with your actual Groq API key
 
 # Database Path
 DB_PATH = "Ecommerce.db"
+
+# Initialize Groq Client
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 # Initialize session state
 if "history" not in st.session_state:
     st.session_state.history = []
 if "query_results" not in st.session_state:
     st.session_state.query_results = {}
-
-# Custom CSS for styling
-st.markdown("""
-<style>
-    .header {
-        font-size: 24px;
-        font-weight: bold;
-        color: #4CAF50;
-        margin-bottom: 10px;
-    }
-    .subheader {
-        font-size: 20px;
-        font-weight: bold;
-        color: #FF9800;
-        margin-bottom: 10px;
-    }
-    .info-box {
-        background-color: #F5F5F5;
-        padding: 10px;
-        border-radius: 5px;
-        margin-bottom: 10px;
-    }
-    .button-style {
-        background-color: #4CAF50;
-        color: white;
-        border-radius: 5px;
-        padding: 10px 20px;
-        font-size: 16px;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Fetch all tables from the database
 def fetch_tables():
@@ -62,6 +38,36 @@ def fetch_table_schema(table_name):
     conn.close()
     return schema[['Column Name', 'Data Type']]
 
+# Function to generate SQL query using AI
+def generate_sql_query(question):
+    tables = fetch_tables()
+    schema_info = {table: fetch_table_schema(table)['Column Name'].tolist() for table in tables}
+
+    # Format database schema as text
+    schema_text = "\n".join([f"Table: {table}, Columns: {', '.join(columns)}" for table, columns in schema_info.items()])
+
+    prompt = f"""
+    You are an SQL expert. Based on the following database schema, generate an optimized SQL query.
+    {schema_text}
+    User's question: "{question}"
+    Ensure the query is valid for SQLite.
+    """
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=500,
+            top_p=1
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        st.error(f"Error generating SQL: {e}")
+        return ""
+
 # Execute SQL query and return DataFrame
 def execute_query(sql_query):
     try:
@@ -78,7 +84,7 @@ def execute_query(sql_query):
         return pd.DataFrame()
 
 # Generate a plot based on data
-def generate_plot(df, question):
+def generate_plot(df):
     if df.empty or df.select_dtypes(include=['number']).empty:
         st.warning("⚠️ No numeric data available for visualization.")
         return
@@ -101,23 +107,23 @@ with st.sidebar:
 # Tab: Ask Questions
 if selected == "📝 Ask Questions":
     st.title("AI Powered SQL Query Assistant 🎉")
-    st.markdown('<p class="header">🔍 Ask a SQL Query</p>', unsafe_allow_html=True)
-    
-    question = st.text_area("Enter your SQL query below:")
-    
-    if st.button("Submit Query 🚀"):
-        if question:
-            # Store query history
-            if question not in st.session_state.history:
-                st.session_state.history.append(question)
-                if len(st.session_state.history) > 5:
-                    st.session_state.history.pop(0)
+    st.markdown('<p class="header">🔍 Ask a Question in Natural Language</p>', unsafe_allow_html=True)
 
-            # Execute and display results
-            df = execute_query(question)
-            st.markdown('<p class="subheader">Query Results:</p>', unsafe_allow_html=True)
-            st.dataframe(df)
-            generate_plot(df, question)
+    question = st.text_area("Enter your question about the database:")
+
+    if st.button("Generate & Run Query 🚀"):
+        if question:
+            # Generate SQL query from AI
+            sql_query = generate_sql_query(question)
+            if sql_query:
+                st.markdown('<p class="subheader">Generated SQL Query:</p>', unsafe_allow_html=True)
+                st.code(sql_query, language="sql")
+
+                # Execute and display results
+                df = execute_query(sql_query)
+                st.markdown('<p class="subheader">Query Results:</p>', unsafe_allow_html=True)
+                st.dataframe(df)
+                generate_plot(df)
 
 # Tab: DB Info
 elif selected == "📚 DB Info":
@@ -145,6 +151,6 @@ elif selected == "📜 Query History":
             with st.expander(f"Query {i+1}: {query}"):
                 df = execute_query(query)
                 st.dataframe(df)
-                generate_plot(df, query)
+                generate_plot(df)
     else:
         st.info("⚠️ No query history available yet.")
